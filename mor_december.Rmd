@@ -5,26 +5,148 @@ date: "2025-12-04"
 output: html_document
 ---
 
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+## Load Libraries and Themes
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+```{r libraries}
+pacman::p_load(
+  tidyverse,
+  dbplyr,
+  DBI,
+  odbc, 
+  lubridate,
+  plotly, 
+  epitools, 
+  MatchIt, 
+  lmtest,
+  sandwich,
+  broom
+  
+)
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+theme_set(theme_bw())
+set.seed(1234)
 
-```{r cars}
-summary(cars)
+# remove scientific notation
+options(scipen=999)
+
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
+## Import & Tidy Data
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+### Connect to Servers/Databases
+
+```{r odbc connect}
+mcanalytics <- DBI::dbConnect(odbc::odbc()
+                        ,Driver = "ODBC Driver 17 for SQL Server"
+                        ,Server = "DB-PROD-MSO"
+                        ,Database = "MCANALYTICS"
+                        ,Trusted_Connection = "Yes")
+
+mcis <- DBI::dbConnect(odbc::odbc()
+                        ,Driver = "ODBC Driver 17 for SQL Server"
+                        ,Server = "SQL12"
+                        ,Database = "MCIS"
+                        ,Trusted_Connection = "Yes")
+
+altamed_dwh <- DBI::dbConnect(odbc::odbc()
+                        ,Driver = "ODBC Driver 17 for SQL Server"
+                        ,Server = "DB-PROD-DWH"
+                        ,Database = "ALTAMED_DWH"
+                        ,Trusted_Connection = "Yes")
+
+acg <- DBI::dbConnect(odbc::odbc()
+                        ,Driver = "ODBC Driver 17 for SQL Server"
+                        ,Server = "DB-PROD-DWH"
+                        ,Database = "ACG"
+                        ,Trusted_Connection = "Yes")
+
+datalake <- DBI::dbConnect(odbc::odbc()
+                        ,Driver = "ODBC Driver 17 for SQL Server"
+                        ,Server = "DB-PROD-REPORT"
+                        ,Database = "Datalake"
+                        ,Trusted_Connection = "Yes")
+
+
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+### Import Tables
+
+Define interval start date and end date (Sep 2024 - Sep 2025). 
+
+```{r}
+start_date <- '2023-09-01'
+end_date <- '2025-08-31'
+
+#elig_year_month <- 202508 
+
+```
+
+
+```{r}
+MOR_ED_Detail <- 
+  mcis |> 
+  tbl(in_schema("dbo", "MOR_ED_Detail")) |> 
+  filter(Report_Include == "Report Include") |> 
+  collect() |> 
+  janitor::clean_names()
+
+MOR_region_1 <- 
+  MOR_ED_Detail |> 
+  filter(region_sid == '1')
+
+```
+
+
+```{r}
+ed_detail_grouped <- 
+  MOR_region_1 |> 
+  group_by(patient_sid) |> 
+  summarise(ed_visit_count = n()) 
+
+ed_detail_grouped |> 
+  arrange(desc(ed_visit_count))
+
+# join count back to patient
+MOR_region_1_counts <- 
+  MOR_region_1 |> 
+  left_join(ed_detail_grouped, by = "patient_sid") |> 
+  mutate(ed_visit_count_cat = case_when(ed_visit_count >= 1 & ed_visit_count <= 5 ~ "1-5", 
+                                          ed_visit_count >5 & ed_visit_count <= 10 ~ "6-10", 
+                                          ed_visit_count > 10 & ed_visit_count <= 20 ~ "10-20", 
+                                          ed_visit_count > 20 & ed_visit_count <= 50 ~ "20-50", 
+                                          ed_visit_count > 50 & ed_visit_count <= 100 ~ "50-100", 
+                                          ed_visit_count > 100 ~ "> 100", 
+                                          .default = "NA")) 
+
+MOR_region_1_counts |> 
+  filter(ed_visit_count > 50) |> 
+  group_by(patient_need_group) |> 
+  summarise(n = n()) |> 
+  arrange(desc(n))
+
+MOR_region_1_counts |> 
+  group_by(ed_visit_countat) |> S
+  summarise(count = n())
+
+```
+
+```{r}
+MOR_region_1_counts |> 
+  filter(!is.na(ed_visit_count_cat)) |> 
+  rename(ED_Visit_Count_ = ed_visit_count_cat) |> 
+  ggplot(aes(x = ED_Visit_Count_, fill = ED_Visit_Count_)) + 
+  geom_histogram(stat = "count")  +
+  geom_text(aes(label = ED_Visit_Count_)) |> 
+  labs(x = "ED Visit Count", 
+       y = "Patient Count") + 
+  theme(legend.position = "none")
+
+```
+
