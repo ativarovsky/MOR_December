@@ -78,7 +78,7 @@ datalake <- DBI::dbConnect(odbc::odbc()
 
 ### Import Tables
 
-Define interval start date and end date (Sep 2024 - Sep 2025). 
+Define interval start date and end date (Sep 2024 - Sep 2025). Choose region. 
 
 ```{r}
 start_date <- '2023-09-01'
@@ -86,9 +86,11 @@ end_date <- '2025-08-31'
 
 #elig_year_month <- 202508 
 
+region_select <- "Region 3 - Orange County"
+
 ```
 
-
+Pull in ED table. 
 ```{r}
 MOR_ED_Detail <- 
   mcis |> 
@@ -97,16 +99,17 @@ MOR_ED_Detail <-
   collect() |> 
   janitor::clean_names()
 
-MOR_region_5 <- 
-  MOR_ED_Detail |> 
-  filter(region_sid == '5')
 
 ```
 
-
+Filter and group for output.
 ```{r}
+MOR_region <- 
+  MOR_ED_Detail |> 
+  filter(region == region_select)
+
 ed_detail_grouped <- 
-  MOR_region_5 |> 
+  MOR_region |> 
   group_by(patient_sid) |> 
   summarise(ed_visit_count = n()) 
 
@@ -114,8 +117,8 @@ ed_detail_grouped |>
   arrange(desc(ed_visit_count))
 
 # join count back to patient
-MOR_region_5_counts <- 
-  MOR_region_5 |> 
+MOR_region_counts <- 
+  MOR_region |> 
   left_join(ed_detail_grouped, by = "patient_sid") |> 
   mutate(ed_visit_count_cat = case_when(ed_visit_count >= 1 & ed_visit_count <= 5 ~ "1-5", 
                                           ed_visit_count >5 & ed_visit_count <= 10 ~ "6-10", 
@@ -125,21 +128,21 @@ MOR_region_5_counts <-
                                           ed_visit_count > 100 ~ "> 100", 
                                           .default = "NA")) 
 
-MOR_region_5_counts |> 
-#  filter(ed_visit_count > 50) |> 
-  group_by(patient_sid) |> 
+MOR_region_counts |> 
+  filter(ed_visit_count > 50) |> 
+  group_by(ccsr_category) |> 
   summarise(n = n()) |> 
   arrange(desc(n)) 
 
 
-MOR_region_5_counts |> 
+MOR_region_counts |> 
   group_by(ed_visit_count_cat) |>
   summarise(count = n())
 
 ```
 
 ```{r}
-MOR_region_5_counts |> 
+MOR_region_counts |> 
   filter(!is.na(ed_visit_count_cat)) |> 
   rename(ED_Visit_Count_ = ed_visit_count_cat) |> 
   ggplot(aes(x = ED_Visit_Count_, fill = ED_Visit_Count_)) + 
@@ -158,6 +161,10 @@ MOR_region_5_counts |>
   group_by(ccsr_category) |> 
   summarise(n = n()) |> 
   arrange(desc(n))
+
+```
+
+```{r}
 
 ```
 
